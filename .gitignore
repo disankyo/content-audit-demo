@@ -1,0 +1,25 @@
+# ============ 构建产物 ============
+target/
+bin/
+build/
+out/
+
+# ============ IDE ============
+.idea/
+*.iml
+.settings/
+.classpath
+.project
+.vscode/
+
+# ============ 日志 ============
+*.log
+/logs/
+
+# ============ 系统 ============
+.DS_Store
+Thumbs.db
+
+# ============ 本地配置（含密码，勿提交）============
+*.local.yml
+application-local.yml

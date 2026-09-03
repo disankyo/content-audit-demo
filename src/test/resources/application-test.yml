@@ -1,0 +1,18 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:audit;MODE=MySQL;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE
+    username: sa
+    password: ''
+    driver-class-name: org.h2.Driver
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema-h2.sql
+  # 集成测试关闭定时任务，改为手动驱动流程
+  task:
+    scheduling:
+      enabled: false
+
+logging:
+  level:
+    com.example.audit: DEBUG

@@ -1,0 +1,55 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: content-audit-demo
+
+  datasource:
+    url: jdbc:mysql://127.0.0.1:3306/audit_demo?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+
+  # Spring AI：默认占位符（非空白，保证上下文能启动）；
+  # 值为 disabled 时 AiAuditService 判定为「未配置真实密钥」，AI 阶段纯本地降级为「转人工」，不发起任何网络请求。
+  # 接入真实模型：export OPENAI_API_KEY=sk-xxxx 后重启即可。
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:disabled}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      chat:
+        options:
+          model: gpt-4o-mini
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+    # 打印 SQL，练手项目方便观察；生产必须关掉
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# ---------- 业务参数 ----------
+audit:
+  machine:
+    # 机审消费者：轮询间隔（毫秒）、每批捞取条数
+    poll-interval-ms: 1000
+    batch-size: 20
+    max-retry: 3
+  manual:
+    # 审核员领取任务后几分钟不提交，任务自动回收
+    lock-minutes: 5
+  ai:
+    # 是否启用大模型兜底层（没配 key 就关）
+    enabled: true
+    timeout-ms: 3000
+  # 敏感词库：命中的直接机审驳回（逗号分隔字符串，@Value 绑定最稳妥）
+  sensitive-words: "违禁词A,违禁词B,加微信,代购私聊"
+
+logging:
+  level:
+    com.example.audit: DEBUG
