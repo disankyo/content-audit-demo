@@ -6,7 +6,9 @@ spring:
     name: content-audit-demo
 
   datasource:
-    url: jdbc:mysql://127.0.0.1:3306/audit_demo?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    # characterEncoding 必须是 Java 字符集名（UTF-8），utf8mb4 是 MySQL 服务端字符集名，
+    # 驱动不识别会抛 Unsupported character encoding 'utf8mb4'；如需 utf8mb4 用 connectionCollation 指定
+    url: jdbc:mysql://127.0.0.1:3306/audit_demo?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_general_ci&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
     username: root
     password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
