@@ -41,8 +41,17 @@ public interface MachineAuditMapper {
     @Update("UPDATE machine_audit_queue SET queue_status = 1 WHERE id = #{id} AND queue_status = 0")
     int claim(@Param("id") Long id);
 
-    @Update("UPDATE machine_audit_queue SET queue_status = 2 WHERE id = #{id}")
-    int finish(@Param("id") Long id);
+    /**
+     * 机审成功出结论后删除队列记录。
+     * 队列是临时调度数据，结论已落 machine_audit_result、过程已落 machine_audit_log，
+     * 成功的任务没必要在队列里留「已完成」态——留着只会让表无限膨胀。
+     * 只有失败的任务会留在队列里重试 / 等人工介入。
+     */
+    @Delete("DELETE FROM machine_audit_queue WHERE id = #{id}")
+    int deleteById(@Param("id") Long id);
+
+    @Select("SELECT * FROM machine_audit_queue WHERE dynamic_id = #{dynamicId}")
+    MachineAuditQueue selectByDynamicId(@Param("dynamicId") Long dynamicId);
 
     /** 失败重试：次数 +1，退避时间按次数递增（MySQL 中引用到的是更新前的旧值） */
     @Update("""
@@ -54,7 +63,7 @@ public interface MachineAuditMapper {
             """)
     int retryLater(@Param("id") Long id);
 
-    /** 超过最大重试次数，标记为失败，等待人工介入 */
+    /** 超过最大重试次数：标记失败并留在队列里，等人工介入（失败任务没有结论，不能删） */
     @Update("UPDATE machine_audit_queue SET queue_status = 3 WHERE id = #{id}")
     int markFailed(@Param("id") Long id);
 

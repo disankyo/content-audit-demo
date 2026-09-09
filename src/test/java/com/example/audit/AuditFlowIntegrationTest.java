@@ -73,6 +73,7 @@ class AuditFlowIntegrationTest {
         assertEquals(AuditConst.MachineResult.REJECT.getCode(), d.getMachineStatus());
         // 机审驳回不进人审队列
         assertNull(manualAuditMapper.selectByDynamicId(id), "驳回不应产生人审任务");
+        assertNull(machineAuditMapper.selectByDynamicId(id), "机审出结论后队列记录应删除");
     }
 
     // ---------- 用例 2：正常文本 → 机审通过 → 人审通过 → 最终通过 ----------
@@ -90,6 +91,7 @@ class AuditFlowIntegrationTest {
                         || afterMachine.getMachineStatus() == AuditConst.MachineResult.SUSPECT.getCode(),
                 "正常文本机审应放行或转人工");
         assertNotNull(manualAuditMapper.selectByDynamicId(id), "应通过或疑似，进入人审队列");
+        assertNull(machineAuditMapper.selectByDynamicId(id), "机审出结论后队列记录应删除");
 
         // 审核员领取并提交通过
         ManualAuditService.ManualTask task = manualAuditService.claim(9001L);
@@ -141,6 +143,23 @@ class AuditFlowIntegrationTest {
         ManualAuditQueue back = manualAuditMapper.selectByDynamicId(id);
         assertEquals(AuditConst.ManualQueueStatus.PENDING.getCode(), back.getQueueStatus(), "放弃后应退回待领取");
         assertNull(back.getAssigneeId(), "放弃后应清空持有人");
+    }
+
+    // ---------- 用例 5：机审失败 → 队列保留并标记「失败待介入」 ----------
+    @Test
+    void machine_queue_should_keep_failed_task_for_manual_intervention() {
+        Long ghostId = 999999L;   // 动态不存在，机审必然抛异常
+        machineAuditMapper.insertIgnore(ghostId, AuditConst.PRIORITY_NORMAL);
+        // 直接把重试次数推到 maxRetry-1（配置 audit.machine.max-retry=3），避免等退避时间
+        jdbcTemplate.execute("UPDATE machine_audit_queue SET retry_count = 2, next_retry_time = NOW()"
+                + " WHERE dynamic_id = " + ghostId);
+
+        machineAuditConsumer.consume();
+
+        MachineAuditQueue failed = machineAuditMapper.selectByDynamicId(ghostId);
+        assertNotNull(failed, "失败任务没有结论，不能删除，需留待人工介入");
+        assertEquals(AuditConst.MachineQueueStatus.FAILED.getCode(), failed.getQueueStatus(),
+                "重试耗尽应标记失败待介入");
     }
 
     // ImageAuditClient.scan 按 Math.abs(url.hashCode()) % 10 分桶；找到命中指定桶的 URL

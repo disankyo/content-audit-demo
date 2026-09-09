@@ -20,12 +20,14 @@ import java.util.List;
 /**
  * 机审队列消费者。
  *
- * <p>流程：捞取 → 抢占 → 机审 → 写结论 → 流转
+ * <p>流程：捞取 → 抢占 → 机审 → 写结论 → 流转 → 出队（删除）
  * <pre>
  *   机审驳回   → 动态直接驳回，流程结束
  *   机审通过   → 入人审队列（priority 5）
  *   机审疑似   → 入人审队列并插队（priority 2）
  * </pre>
+ * 队列是临时调度数据：出结论后即删除；只有处理失败的任务会留下重试，
+ * 重试耗尽标记「失败待介入」等人工处理。
  *
  * <p>关于队列表 vs MQ（面试必考，见 README）：
  * 队列表的优势是可靠、可查询、支持优先级与人工干预；
@@ -65,8 +67,14 @@ public class MachineAuditConsumer {
                 handleOne(q);
             } catch (Exception e) {
                 // 单条失败不能影响整批
-                log.error("机审处理异常, queueId={}", q.getId(), e);
-                machineAuditMapper.retryLater(q.getId());
+                log.error("机审处理异常, queueId={}, retryCount={}", q.getId(), q.getRetryCount(), e);
+                // 重试次数用完就留在队列里标记失败等人工介入；否则退避后重新回到待处理
+                if (q.getRetryCount() != null && q.getRetryCount() + 1 >= maxRetry) {
+                    machineAuditMapper.markFailed(q.getId());
+                    log.error("机审重试耗尽，转人工介入, queueId={}, dynamicId={}", q.getId(), q.getDynamicId());
+                } else {
+                    machineAuditMapper.retryLater(q.getId());
+                }
             }
         }
     }
@@ -117,7 +125,7 @@ public class MachineAuditConsumer {
         if (outcome.isReject()) {
             // 机审判定违规：直接驳回，不占用人工资源
             dynamicBaseMapper.updateBizStatus(dynamicId, AuditConst.BizStatus.REJECTED.getCode());
-            machineAuditMapper.finish(queue.getId());
+            machineAuditMapper.deleteById(queue.getId());
             log.info("机审驳回, dynamicId={}", dynamicId);
             return;
         }
@@ -127,7 +135,7 @@ public class MachineAuditConsumer {
                 ? AuditConst.PRIORITY_SUSPECT
                 : AuditConst.PRIORITY_NORMAL;
         manualAuditMapper.insertIgnore(dynamicId, priority, outcome.result().getCode());
-        machineAuditMapper.finish(queue.getId());
+        machineAuditMapper.deleteById(queue.getId());
         log.info("机审完成并流转人审, dynamicId={}, result={}, priority={}",
                 dynamicId, outcome.result(), priority);
     }

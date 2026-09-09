@@ -88,23 +88,29 @@ public final class AuditConst {
 
     }
 
-    /** 机审队列表状态 */
-    public enum QueueStatus {
+    /**
+     * 机审队列表状态：队列同样是<b>临时数据</b>，机审出结论后记录即删除，不留「已完成」态。
+     *
+     * <p>保留三态：待处理 / 处理中 / 失败待介入。
+     * 失败态是<b>故意保留</b>的——成功的任务结论已写进 machine_audit_result，
+     * 队列里再存一份没意义；但失败的任务没有结论，必须留着给人工排查。
+     *
+     * <p>code 里 2 空着是历史原因：原「已完成」用过 2，这里不再复用，避免和历史数据语义冲突。
+     */
+    @Getter
+    public enum MachineQueueStatus {
         PENDING(0, "待处理"),
         PROCESSING(1, "处理中"),
-        DONE(2, "已完成"),
-        FAILED(3, "失败");
+        FAILED(3, "失败待介入");
 
         private final int code;
         private final String desc;
 
-        QueueStatus(int code, String desc) {
+        MachineQueueStatus(int code, String desc) {
             this.code = code;
             this.desc = desc;
         }
 
-        public int getCode() { return code; }
-        public String getDesc() { return desc; }
     }
 
     /**

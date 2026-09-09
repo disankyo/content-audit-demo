@@ -54,12 +54,12 @@ CREATE TABLE IF NOT EXISTS dynamic_video (
   UNIQUE KEY uk_dynamic (dynamic_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='动态视频表';
 
--- ---------- 4. 机审审核队列表 ----------
+-- ---------- 4. 机审审核队列表（临时数据：出结论后删除，失败任务保留重试） ----------
 CREATE TABLE IF NOT EXISTS machine_audit_queue (
   id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   dynamic_id      BIGINT UNSIGNED NOT NULL,
   priority        TINYINT NOT NULL DEFAULT 5            COMMENT '1-9，越小越优先',
-  queue_status    TINYINT NOT NULL DEFAULT 0            COMMENT '0待处理 1处理中 2已完成 3失败',
+  queue_status    TINYINT NOT NULL DEFAULT 0            COMMENT '0待处理 1处理中 3失败待介入（2 已废弃，原「已完成」）',
   retry_count     INT NOT NULL DEFAULT 0,
   next_retry_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   create_time     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
