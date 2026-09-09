@@ -10,7 +10,7 @@ spring:
     # 驱动不识别会抛 Unsupported character encoding 'utf8mb4'；如需 utf8mb4 用 connectionCollation 指定
     url: jdbc:mysql://127.0.0.1:3306/audit_demo?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_general_ci&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
     username: root
-    password: root
+    password: 123456
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   sql:
@@ -20,20 +20,26 @@ spring:
 
   # Spring AI：默认占位符（非空白，保证上下文能启动）；
   # 值为 disabled 时 AiAuditService 判定为「未配置真实密钥」，AI 阶段纯本地降级为「转人工」，不发起任何网络请求。
-  # 接入真实模型：export OPENAI_API_KEY=sk-xxxx 后重启即可。
+  # 接入真实模型：export DEEPSEEK_API_KEY=sk-xxxx 后重启即可。
+  # 注意：DeepSeek 是 OpenAI 协议兼容的，所以仍走 spring-ai-starter-model-openai，
+  #      只换 base-url / model 即可，不需要换依赖。
   ai:
     openai:
-      api-key: ${OPENAI_API_KEY:disabled}
-      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      api-key: ${DEEPSEEK_API_KEY:disabled}
+      # DeepSeek 官方地址；Spring AI 会自动补 /v1（DeepSeek 也接受 /v1 前缀，两种情况都通）
+      base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
       chat:
         options:
-          model: gpt-4o-mini
+          # deepseek-chat = DeepSeek-V3（非思考模式）；要推理模型用 deepseek-reasoner
+          model: deepseek-chat
+          temperature: 0.1
 
 mybatis:
   configuration:
     map-underscore-to-camel-case: true
-    # 打印 SQL，练手项目方便观察；生产必须关掉
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # SQL 日志走 slf4j 统一管控（默认自动探测），不用 StdOutImpl——它绕过日志框架直打印，
+    # 定时任务每秒轮询会刷屏；需要临时看 SQL 时把下面的 mapper 包级别调成 DEBUG 即可
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
 
 # ---------- 业务参数 ----------
 audit:
@@ -55,3 +61,10 @@ audit:
 logging:
   level:
     com.example.audit: DEBUG
+    # 业务代码保留 DEBUG，框架层降噪：
+    # 1) mapper 包降为 INFO：MyBatis 走 slf4j 后 SQL 是 DEBUG 级、挂在 mapper 接口名下，否则每次轮询都会打印 Preparing/Parameters
+    # 2) SqlSession / 连接获取的 DEBUG 噪音（Creating a new SqlSession / JDBC Connection will not be managed...）
+    com.example.audit.mapper: INFO
+    org.mybatis.spring: WARN
+    org.springframework.jdbc: WARN
+    org.springframework.transaction: WARN
