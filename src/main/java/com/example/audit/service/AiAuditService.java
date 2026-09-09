@@ -47,10 +47,10 @@ public class AiAuditService {
     /** 专用线程池：阻塞 I/O 不走 ForkJoinPool 公共池，避免互相饥饿 */
     private final Executor ioExecutor = Executors.newCachedThreadPool();
 
-    /**
-     * 用 ObjectProvider 延迟获取 ChatClient.Builder：
-     * 没配 api-key 时 Spring AI 不会创建该 bean，此时取不到，AI 层自动降级为「转人工」，
-     * 保证项目开箱即跑、空 key 也能启动。
+    /*
+      用 ObjectProvider 延迟获取 ChatClient.Builder：
+      没配 api-key 时 Spring AI 不会创建该 bean，此时取不到，AI 层自动降级为「转人工」，
+      保证项目开箱即跑、空 key 也能启动。
      */
     /** 未配置真实密钥时使用的占位符，见 application.yml 注释 */
     private static final String PLACEHOLDER_KEY = "disabled";
@@ -117,10 +117,8 @@ public class AiAuditService {
     }
 
     private String buildContent(DynamicBase d) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("【标题】").append(nvl(d.getTitle())).append('\n');
-        sb.append("【正文】").append(nvl(d.getContent()));
-        return sb.toString();
+        return "【标题】" + nvl(d.getTitle()) + '\n' +
+                "【正文】" + nvl(d.getContent());
     }
 
     private String nvl(String s) {

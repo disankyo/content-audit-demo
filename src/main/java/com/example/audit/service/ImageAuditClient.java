@@ -4,7 +4,6 @@ import com.example.audit.common.AuditConst.Stage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.util.Locale;
 
 /**
  * 图片审核客户端。
@@ -56,7 +55,4 @@ public class ImageAuditClient {
         }
     }
 
-    public StageResult scan(String imageUrl) {
-        return scan(imageUrl, Stage.IMAGE);
-    }
 }
