@@ -1,5 +1,7 @@
 package com.example.audit.common;
 
+import lombok.Getter;
+
 import java.util.Arrays;
 
 /**
@@ -11,6 +13,7 @@ public final class AuditConst {
     private AuditConst() {}
 
     /** 动态类型 */
+    @Getter
     public enum DynamicType {
         TEXT(1, "文字"),
         IMAGE(2, "图片"),
@@ -25,9 +28,6 @@ public final class AuditConst {
             this.desc = desc;
         }
 
-        public int getCode() { return code; }
-        public String getDesc() { return desc; }
-
         public static DynamicType of(Integer code) {
             return Arrays.stream(values())
                     .filter(t -> t.code == (code == null ? -1 : code))
@@ -37,6 +37,7 @@ public final class AuditConst {
     }
 
     /** 动态业务状态 */
+    @Getter
     public enum BizStatus {
         DRAFT(0, "草稿"),
         AUDITING(1, "待审核"),
@@ -52,11 +53,10 @@ public final class AuditConst {
             this.desc = desc;
         }
 
-        public int getCode() { return code; }
-        public String getDesc() { return desc; }
     }
 
     /** 机审结论（三态：通过 / 驳回 / 疑似） */
+    @Getter
     public enum MachineResult {
         PASS(1, "通过"),
         REJECT(2, "驳回"),
@@ -70,11 +70,10 @@ public final class AuditConst {
             this.desc = desc;
         }
 
-        public int getCode() { return code; }
-        public String getDesc() { return desc; }
     }
 
     /** 人审结论 */
+    @Getter
     public enum ManualResult {
         PASS(1, "通过"),
         REJECT(2, "驳回");
@@ -87,8 +86,6 @@ public final class AuditConst {
             this.desc = desc;
         }
 
-        public int getCode() { return code; }
-        public String getDesc() { return desc; }
     }
 
     /** 机审队列表状态 */
@@ -118,6 +115,7 @@ public final class AuditConst {
      * 结论已经落在 manual_audit_result，流转痕迹落在 manual_audit_log，
      * 队列里再存一份完成态既冗余又会无限膨胀。
      */
+    @Getter
     public enum ManualQueueStatus {
         PENDING(0, "待领取"),
         CLAIMED(1, "已领取");
@@ -130,8 +128,6 @@ public final class AuditConst {
             this.desc = desc;
         }
 
-        public int getCode() { return code; }
-        public String getDesc() { return desc; }
     }
 
     /** 机审阶段（写入日志表，用于追溯与复盘） */
