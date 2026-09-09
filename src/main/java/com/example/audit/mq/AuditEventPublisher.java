@@ -7,7 +7,7 @@ package com.example.audit.mq;
  * 这样带来两个好处：
  * <ul>
  *   <li>换 MQ（RocketMQ → Kafka）只换实现，业务代码零改动</li>
- *   <li>本地开发和测试可以走「本地事件」实现，不装 broker 也能把整个流程跑通</li>
+ *   <li>集成测试用 TestAuditEventPublisher 替身模拟投递，不依赖真实 broker 也能把整个流程跑通</li>
  * </ul>
  *
  * <p><b>为什么用 MQ 而不是直接写队列表</b>：

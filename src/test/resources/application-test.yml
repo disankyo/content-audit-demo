@@ -1,6 +1,8 @@
 spring:
   datasource:
-    url: jdbc:h2:mem:audit;MODE=MySQL;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE
+    # 每个测试上下文用独立的 H2 内存库（random 保证不同 Spring 上下文之间库不共享），
+    # 避免多个 @SpringBootTest 共用 jdbc:h2:mem:audit 时，后启动的上下文重复执行 schema 初始化报错
+    url: jdbc:h2:mem:audit-${random.uuid};MODE=MySQL;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE
     username: sa
     password: ''
     driver-class-name: org.h2.Driver
@@ -12,13 +14,15 @@ spring:
   task:
     scheduling:
       enabled: false
-  # 测试不连 broker：排除 RocketMQ 自动装配，事件走 local 实现
+  # 测试不连真实 broker：排除 RocketMQ 自动装配；由测试替身 TestAuditEventPublisher 模拟投递
   autoconfigure:
     exclude: org.apache.rocketmq.spring.autoconfigure.RocketMQAutoConfiguration
 
 audit:
   mq:
-    type: local
+    # 关闭 RocketMQ 传输（!= rocketmq 即不实例化 RocketMqAuditEventPublisher / 监听器），
+    # 由 TestAuditEventPublisher 直接调用 AuditEventHandler 模拟「broker 投递」
+    type: test
 
 logging:
   level:

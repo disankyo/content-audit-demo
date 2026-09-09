@@ -162,11 +162,11 @@ class AuditFlowIntegrationTest {
                 "重试耗尽应标记失败待介入");
     }
 
-    // ImageAuditClient.scan 按 Math.abs(url.hashCode()) % 10 分桶；找到命中指定桶的 URL
+    // ImageAuditClient.scan 按 (url.hashCode() & 0x7FFFFFFF) % 10 分桶；找到命中指定桶的 URL
     private String findUrlForBucket(int bucket) {
         for (int i = 0; i < 100000; i++) {
             String u = "http://cdn.example.com/p" + i + ".jpg";
-            if (Math.abs(u.hashCode()) % 10 == bucket) {
+            if ((u.hashCode() & 0x7FFFFFFF) % 10 == bucket) {
                 return u;
             }
         }

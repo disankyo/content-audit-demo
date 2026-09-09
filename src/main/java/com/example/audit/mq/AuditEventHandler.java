@@ -10,7 +10,7 @@ import org.springframework.stereotype.Service;
 /**
  * 事件消费侧的入队逻辑。
  *
- * <p>本地事件和 RocketMQ 两种传输方式共用这一个实现——
+ * <p>RocketMQ 的监听器和测试替身共用这一个实现——
  * 换个 MQ 只换「消息怎么来」，业务动作不变。
  *
  * <p><b>幂等是这里的生命线</b>：MQ 只保证至少一次投递，重复消费必然发生。

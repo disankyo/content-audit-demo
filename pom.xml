@@ -53,9 +53,8 @@
             <artifactId>spring-ai-starter-model-openai</artifactId>
         </dependency>
 
-        <!-- RocketMQ：发布 / 机审出结论后用消息通知下游，解耦「业务写库」与「入队调度」。
-             默认走本地事件实现（audit.mq.type=local），不装 broker 也能跑；
-             切成 rocketmq 后由 RocketMQ 实现接管，业务代码零改动。 -->
+        <!-- RocketMQ：发布 / 机审出结论后发消息通知下游，解耦「业务写库」与「入队调度」。
+             统一使用 mq/rocketmq 实现；集成测试通过 TestAuditEventPublisher 替身模拟投递，不依赖真实 broker。 -->
         <dependency>
             <groupId>org.apache.rocketmq</groupId>
             <artifactId>rocketmq-spring-boot-starter</artifactId>
