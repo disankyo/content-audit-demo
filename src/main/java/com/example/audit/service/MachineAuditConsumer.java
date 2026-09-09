@@ -12,9 +12,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -43,6 +42,7 @@ public class MachineAuditConsumer {
     private final ManualAuditMapper manualAuditMapper;
     private final DynamicBaseMapper dynamicBaseMapper;
     private final MachineAuditService machineAuditService;
+    private final TransactionTemplate transactionTemplate;
 
     @Value("${audit.machine.batch-size:20}")
     private int batchSize;
@@ -79,7 +79,6 @@ public class MachineAuditConsumer {
         }
     }
 
-    @Transactional
     public void handleOne(MachineAuditQueue queue) {
         // 抢占：用 WHERE queue_status = 0 保证只有一个线程能拿到
         int claimed = machineAuditMapper.claim(queue.getId());
@@ -88,8 +87,20 @@ public class MachineAuditConsumer {
         }
 
         Long dynamicId = queue.getDynamicId();
+
+        // 机审执行（可能包含外部 HTTP 调用，不开事务，避免长时间占用 DB 连接）
         MachineOutcome outcome = machineAuditService.audit(dynamicId);
 
+        // 持久化结论（纯 DB 操作，用 TransactionTemplate 显式事务，避免自调用导致 @Transactional 失效）
+        transactionTemplate.executeWithoutResult(status ->
+            persistResult(queue, dynamicId, outcome)
+        );
+    }
+
+    /**
+     * 纯 DB 写入，由调用方通过 TransactionTemplate 提供事务上下文。
+     */
+    public void persistResult(MachineAuditQueue queue, Long dynamicId, MachineOutcome outcome) {
         // ---- 写结论（覆盖写，重复机审以最后一次为准） ----
         MachineAuditResult result = new MachineAuditResult();
         result.setDynamicId(dynamicId);

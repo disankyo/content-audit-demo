@@ -9,6 +9,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -42,6 +44,8 @@ public class AiAuditService {
     private final long timeoutMs;
     private final boolean enabled;
     private final boolean realModelAvailable;
+    /** 专用线程池：阻塞 I/O 不走 ForkJoinPool 公共池，避免互相饥饿 */
+    private final Executor ioExecutor = Executors.newCachedThreadPool();
 
     /**
      * 用 ObjectProvider 延迟获取 ChatClient.Builder：
@@ -85,8 +89,7 @@ public class AiAuditService {
                             .user(content)
                             .call()
                             // Structured Output：框架自动注入格式约束并反序列化
-                            .entity(AiVerdict.class))
-                    .orTimeout(timeoutMs, TimeUnit.MILLISECONDS);
+                            .entity(AiVerdict.class), ioExecutor);
 
             AiVerdict verdict = future.get(timeoutMs, TimeUnit.MILLISECONDS);
             long cost = System.currentTimeMillis() - start;

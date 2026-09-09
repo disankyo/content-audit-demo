@@ -96,17 +96,25 @@ public class MachineAuditService {
             return StageResult.fail(Stage.VIDEO, "视频记录不存在", 0);
         }
 
-        List<String> frames = frameExtractor.extract(video.getVideoUrl(), false);
-        List<DynamicImage> frameImages = new ArrayList<>();
-        for (int i = 0; i < frames.size(); i++) {
-            DynamicImage img = new DynamicImage();
-            img.setDynamicId(dynamicId);
-            img.setImageUrl(frames.get(i));
-            img.setSortNo(i);
-            frameImages.add(img);
+        // 检查是否已抽帧（重试场景下避免重复抽帧，抽帧是最耗时的操作）
+        List<DynamicImage> frameImages;
+        boolean alreadyFramed = video.getFrameStatus() != null && video.getFrameStatus() == 1;
+        if (alreadyFramed) {
+            frameImages = dynamicImageMapper.selectByDynamicId(dynamicId);
+            log.debug("视频已抽帧，复用已有帧, dynamicId={}, frames={}", dynamicId, frameImages.size());
+        } else {
+            List<String> frames = frameExtractor.extract(video.getVideoUrl(), false);
+            frameImages = new ArrayList<>();
+            for (int i = 0; i < frames.size(); i++) {
+                DynamicImage img = new DynamicImage();
+                img.setDynamicId(dynamicId);
+                img.setImageUrl(frames.get(i));
+                img.setSortNo(i);
+                frameImages.add(img);
+            }
+            dynamicImageMapper.batchInsert(frameImages);
+            dynamicVideoMapper.markFramed(dynamicId);
         }
-        dynamicImageMapper.batchInsert(frameImages);
-        dynamicVideoMapper.markFramed(dynamicId);
 
         // 逐帧审核：任一帧命中即视为违规
         StageResult worst = null;

@@ -32,7 +32,7 @@ public class ImageAuditClient {
         long start = System.currentTimeMillis();
         try {
             // ---- Mock 实现：按 URL 哈希模拟结果，让流程能跑出不同分支 ----
-            int hash = Math.abs(imageUrl.hashCode());
+            int hash = imageUrl.hashCode() & 0x7FFFFFFF;
             int bucket = hash % 10;
 
             long cost = System.currentTimeMillis() - start;

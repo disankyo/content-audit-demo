@@ -4,6 +4,8 @@ import com.example.audit.common.AuditConst;
 import com.example.audit.domain.DynamicBase;
 import com.example.audit.domain.DynamicImage;
 import com.example.audit.domain.DynamicVideo;
+import com.example.audit.domain.MachineAuditLog;
+import com.example.audit.domain.MachineAuditResult;
 import com.example.audit.mapper.DynamicBaseMapper;
 import com.example.audit.mapper.DynamicImageMapper;
 import com.example.audit.mapper.DynamicVideoMapper;
@@ -34,7 +36,23 @@ public class DynamicService {
     @Transactional
     public Long publish(PublishCmd cmd) {
         long dynamicId = IdGenerator.nextId();
+        AuditConst.DynamicType type = AuditConst.DynamicType.of(cmd.type());
 
+        // 抽帧放在事务外：避免长时间持有 DB 连接
+        List<String> preExtractedFrames = null;
+        if (type == AuditConst.DynamicType.GIF && !cmd.imageUrls().isEmpty()) {
+            preExtractedFrames = frameExtractor.extract(cmd.imageUrls().get(0), true);
+        }
+
+        writePublishData(dynamicId, cmd, type, preExtractedFrames);
+
+        log.info("动态发布成功, dynamicId={}, type={}", dynamicId, type.getDesc());
+        return dynamicId;
+    }
+
+    @Transactional
+    public void writePublishData(long dynamicId, PublishCmd cmd,
+                                 AuditConst.DynamicType type, List<String> gifFrames) {
         // 1. 动态主表
         DynamicBase base = new DynamicBase();
         base.setDynamicId(dynamicId);
@@ -45,15 +63,12 @@ public class DynamicService {
         base.setBizStatus(AuditConst.BizStatus.AUDITING.getCode());
         dynamicBaseMapper.insert(base);
 
-        AuditConst.DynamicType type = AuditConst.DynamicType.of(cmd.type());
-
-        // 2. 图片 / 动图：动图先抽帧，抽出的帧与多图共用 dynamic_image
+        // 2. 图片 / 动图：动图使用预抽帧结果
         if (type == AuditConst.DynamicType.IMAGE || type == AuditConst.DynamicType.GIF) {
             List<DynamicImage> images = new ArrayList<>();
-            if (type == AuditConst.DynamicType.GIF && !cmd.imageUrls().isEmpty()) {
-                List<String> frames = frameExtractor.extract(cmd.imageUrls().get(0), true);
-                for (int i = 0; i < frames.size(); i++) {
-                    images.add(buildImage(dynamicId, frames.get(i), i));
+            if (gifFrames != null) {
+                for (int i = 0; i < gifFrames.size(); i++) {
+                    images.add(buildImage(dynamicId, gifFrames.get(i), i));
                 }
             } else {
                 for (int i = 0; i < cmd.imageUrls().size(); i++) {
@@ -78,9 +93,20 @@ public class DynamicService {
 
         // 4. 幂等入机审队列：重复发布不会产生第二条
         machineAuditMapper.insertIgnore(dynamicId, AuditConst.PRIORITY_NORMAL);
+    }
 
-        log.info("动态发布成功, dynamicId={}, type={}", dynamicId, type.getDesc());
-        return dynamicId;
+    // ==================== 查询方法 ====================
+
+    public DynamicBase getDetail(Long dynamicId) {
+        return dynamicBaseMapper.selectByDynamicId(dynamicId);
+    }
+
+    public MachineAuditResult getMachineResult(Long dynamicId) {
+        return machineAuditMapper.selectResult(dynamicId);
+    }
+
+    public List<MachineAuditLog> getMachineLogs(Long dynamicId) {
+        return machineAuditMapper.selectLogs(dynamicId);
     }
 
     private DynamicImage buildImage(long dynamicId, String url, int sortNo) {
