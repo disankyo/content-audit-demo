@@ -20,6 +20,7 @@
     <properties>
         <java.version>17</java.version>
         <spring-ai.version>1.0.9</spring-ai.version>
+        <rocketmq-spring.version>2.3.5</rocketmq-spring.version>
     </properties>
 
     <dependencies>
@@ -50,6 +51,15 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-openai</artifactId>
+        </dependency>
+
+        <!-- RocketMQ：发布 / 机审出结论后用消息通知下游，解耦「业务写库」与「入队调度」。
+             默认走本地事件实现（audit.mq.type=local），不装 broker 也能跑；
+             切成 rocketmq 后由 RocketMQ 实现接管，业务代码零改动。 -->
+        <dependency>
+            <groupId>org.apache.rocketmq</groupId>
+            <artifactId>rocketmq-spring-boot-starter</artifactId>
+            <version>${rocketmq-spring.version}</version>
         </dependency>
 
         <dependency>

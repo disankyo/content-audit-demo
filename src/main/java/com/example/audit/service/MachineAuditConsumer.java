@@ -6,7 +6,7 @@ import com.example.audit.domain.MachineAuditQueue;
 import com.example.audit.domain.MachineAuditResult;
 import com.example.audit.mapper.DynamicBaseMapper;
 import com.example.audit.mapper.MachineAuditMapper;
-import com.example.audit.mapper.ManualAuditMapper;
+import com.example.audit.mq.AuditEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,11 +19,11 @@ import java.util.List;
 /**
  * 机审队列消费者。
  *
- * <p>流程：捞取 → 抢占 → 机审 → 写结论 → 流转 → 出队（删除）
+ * <p>流程：捞取 → 抢占 → 机审 → 写结论 → <b>发消息</b> → 出队（删除）
  * <pre>
- *   机审驳回   → 动态直接驳回，流程结束
- *   机审通过   → 入人审队列（priority 5）
- *   机审疑似   → 入人审队列并插队（priority 2）
+ *   机审驳回   → 动态直接驳回，流程结束（也发消息，消费端判断后不入人审）
+ *   机审通过   → 发消息，消费端入人审队列（priority 5）
+ *   机审疑似   → 发消息，消费端入人审队列并插队（priority 2）
  * </pre>
  * 队列是临时调度数据：出结论后即删除；只有处理失败的任务会留下重试，
  * 重试耗尽标记「失败待介入」等人工处理。
@@ -39,9 +39,9 @@ import java.util.List;
 public class MachineAuditConsumer {
 
     private final MachineAuditMapper machineAuditMapper;
-    private final ManualAuditMapper manualAuditMapper;
     private final DynamicBaseMapper dynamicBaseMapper;
     private final MachineAuditService machineAuditService;
+    private final AuditEventPublisher eventPublisher;
     private final TransactionTemplate transactionTemplate;
 
     @Value("${audit.machine.batch-size:20}")
@@ -134,20 +134,26 @@ public class MachineAuditConsumer {
 
         // ---- 流转 ----
         if (outcome.isReject()) {
-            // 机审判定违规：直接驳回，不占用人工资源
+            // 机审判定违规：直接驳回，不占用人工资源。
+            // 同样发消息——消息总线上是「机审完成」这个事实，要不要入人审由消费端决定，
+            // 以后想加「驳回后通知作者」直接多一个订阅方就行
             dynamicBaseMapper.updateBizStatus(dynamicId, AuditConst.BizStatus.REJECTED.getCode());
+            eventPublisher.publishMachineAudited(dynamicId, outcome.result().getCode(),
+                    AuditConst.PRIORITY_NORMAL);
             machineAuditMapper.deleteById(queue.getId());
             log.info("机审驳回, dynamicId={}", dynamicId);
             return;
         }
 
-        // 通过或疑似 → 进人审；疑似插队
+        // 通过或疑似 → 发消息通知人审侧入队；疑似插队（priority 更小）
         int priority = outcome.isSuspect()
                 ? AuditConst.PRIORITY_SUSPECT
                 : AuditConst.PRIORITY_NORMAL;
-        manualAuditMapper.insertIgnore(dynamicId, priority, outcome.result().getCode());
+        // 这里不直接写人审队列表：入队是调度动作，交给事件的消费端做。
+        // 消息在事务提交后才投递（见 AfterCommit），保证消费端能查到刚写入的机审结论
+        eventPublisher.publishMachineAudited(dynamicId, outcome.result().getCode(), priority);
         machineAuditMapper.deleteById(queue.getId());
-        log.info("机审完成并流转人审, dynamicId={}, result={}, priority={}",
+        log.info("机审完成并发出流转消息, dynamicId={}, result={}, priority={}",
                 dynamicId, outcome.result(), priority);
     }
 }

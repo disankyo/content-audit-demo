@@ -12,6 +12,13 @@ spring:
   task:
     scheduling:
       enabled: false
+  # 测试不连 broker：排除 RocketMQ 自动装配，事件走 local 实现
+  autoconfigure:
+    exclude: org.apache.rocketmq.spring.autoconfigure.RocketMQAutoConfiguration
+
+audit:
+  mq:
+    type: local
 
 logging:
   level:

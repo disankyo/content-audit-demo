@@ -57,6 +57,17 @@ audit:
     timeout-ms: 3000
   # 敏感词库：命中的直接机审驳回（逗号分隔字符串，@Value 绑定最稳妥）
   sensitive-words: "违禁词A,违禁词B,加微信,代购私聊"
+  mq:
+    # 事件投递方式：
+    #   local    = 进程内 Spring 事件（默认，不装 broker 也能跑全流程，测试也走这个）
+    #   rocketmq = 投递到真实 broker，需要 docker compose 起 rocketmq
+    type: local
+
+# RocketMQ：只有 audit.mq.type=rocketmq 时才会真正连 broker
+rocketmq:
+  name-server: ${ROCKETMQ_NAME_SERVER:127.0.0.1:9876}
+  producer:
+    group: audit_producer_group
 
 logging:
   level:

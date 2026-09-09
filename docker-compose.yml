@@ -24,5 +24,32 @@ services:
       timeout: 5s
       retries: 10
 
+  # RocketMQ：只有 audit.mq.type=rocketmq 时才需要起，local 模式不用
+  rocketmq-namesrv:
+    image: apache/rocketmq:5.3.1
+    container_name: audit-rocketmq-namesrv
+    restart: unless-stopped
+    ports:
+      - "9876:9876"
+    command: sh mqnamesrv
+
+  rocketmq-broker:
+    image: apache/rocketmq:5.3.1
+    container_name: audit-rocketmq-broker
+    restart: unless-stopped
+    depends_on:
+      - rocketmq-namesrv
+    ports:
+      - "10911:10911"
+      - "10909:10909"
+    environment:
+      NAMESRV_ADDR: rocketmq-namesrv:9876
+    # -c 指向挂载的 broker.conf（里面开了 autoCreateTopicEnable，省掉手动建 topic）
+    command: >
+      sh mqbroker -n rocketmq-namesrv:9876
+      -c /home/rocketmq/rocketmq-5.3.1/conf/broker.conf
+    volumes:
+      - ./docker/rocketmq/broker.conf:/home/rocketmq/rocketmq-5.3.1/conf/broker.conf
+
 volumes:
   mysql-data:

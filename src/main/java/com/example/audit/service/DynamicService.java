@@ -10,6 +10,7 @@ import com.example.audit.mapper.DynamicBaseMapper;
 import com.example.audit.mapper.DynamicImageMapper;
 import com.example.audit.mapper.DynamicVideoMapper;
 import com.example.audit.mapper.MachineAuditMapper;
+import com.example.audit.mq.AuditEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -20,7 +21,11 @@ import java.util.List;
 
 /**
  * 动态发布服务。
- * 发布 → 落库 → 入机审队列（幂等）。
+ * 发布 → 落库 → <b>发消息</b>（由消费端入机审队列）。
+ *
+ * <p>发布服务不再自己写机审队列表：入队属于「调度」职责，交给消费端去做。
+ * 这样发布接口的耗时和失败率都不受调度侧影响，后续要加「发布后送风控」「发布后发通知」，
+ * 只要多订阅一个消费者，发布服务不用改。
  */
 @Slf4j
 @Service
@@ -31,6 +36,7 @@ public class DynamicService {
     private final DynamicImageMapper dynamicImageMapper;
     private final DynamicVideoMapper dynamicVideoMapper;
     private final MachineAuditMapper machineAuditMapper;
+    private final AuditEventPublisher eventPublisher;
     private final FrameExtractor frameExtractor;
 
     @Transactional
@@ -45,6 +51,10 @@ public class DynamicService {
         }
 
         writePublishData(dynamicId, cmd, type, preExtractedFrames);
+
+        // 通知机审侧入队。事务提交后才会真正投递（见 AfterCommit），
+        // 否则消费端可能查不到刚写入的动态
+        eventPublisher.publishDynamicPublished(dynamicId);
 
         log.info("动态发布成功, dynamicId={}, type={}", dynamicId, type.getDesc());
         return dynamicId;
@@ -91,8 +101,7 @@ public class DynamicService {
             dynamicVideoMapper.insert(video);
         }
 
-        // 4. 幂等入机审队列：重复发布不会产生第二条
-        machineAuditMapper.insertIgnore(dynamicId, AuditConst.PRIORITY_NORMAL);
+        // 4. 入机审队列不再在这里做：改由「动态已发布」事件的消费端处理（见 AuditEventHandler）
     }
 
     // ==================== 查询方法 ====================
