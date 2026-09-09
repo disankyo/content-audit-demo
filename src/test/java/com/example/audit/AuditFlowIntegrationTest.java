@@ -3,6 +3,7 @@ package com.example.audit;
 import com.example.audit.common.AuditConst;
 import com.example.audit.domain.DynamicBase;
 import com.example.audit.domain.MachineAuditQueue;
+import com.example.audit.domain.ManualAuditQueue;
 import com.example.audit.mapper.DynamicBaseMapper;
 import com.example.audit.mapper.MachineAuditMapper;
 import com.example.audit.mapper.ManualAuditMapper;
@@ -95,10 +96,10 @@ class AuditFlowIntegrationTest {
         assertNotNull(task, "应能领取到人审任务");
         boolean ok = manualAuditService.submit(9001L, id, AuditConst.ManualResult.PASS, "内容正常");
         assertTrue(ok);
-        // 提交完成后队列记录保留（用于追溯），但状态应置为「已完成」
-        com.example.audit.domain.ManualAuditQueue mq = manualAuditMapper.selectByDynamicId(id);
-        assertNotNull(mq, "人审队列记录应保留");
-        assertEquals(AuditConst.QueueStatus.DONE.getCode(), mq.getQueueStatus(), "提交后应置为已完成");
+        // 队列是临时调度数据：审完即删，结论只留在 manual_audit_result / manual_audit_log
+        assertNull(manualAuditMapper.selectByDynamicId(id), "人审提交后队列记录应删除");
+        assertNotNull(manualAuditMapper.selectResult(id), "人审结论应保留在结果表");
+        assertFalse(manualAuditMapper.selectLogs(id).isEmpty(), "人审动作应有留痕");
 
         DynamicBase finalD = dynamicBaseMapper.selectByDynamicId(id);
         assertEquals(AuditConst.BizStatus.PASSED.getCode(), finalD.getBizStatus(), "人审通过应最终通过");
@@ -117,6 +118,29 @@ class AuditFlowIntegrationTest {
 
         DynamicBase d = dynamicBaseMapper.selectByDynamicId(id);
         assertEquals(AuditConst.BizStatus.REJECTED.getCode(), d.getBizStatus(), "违规图片应机审驳回");
+    }
+
+    // ---------- 用例 4：人审队列只有两态，放弃后退回待领取 ----------
+    @Test
+    void manual_queue_should_only_have_pending_and_claimed() {
+        Long id = dynamicService.publish(new DynamicService.PublishCmd(
+                1004L, AuditConst.DynamicType.TEXT.getCode(),
+                "周末去哪玩", "记录一次近郊徒步",
+                List.of(), null, null, null, null));
+        runMachineAudit(id);
+
+        ManualAuditQueue before = manualAuditMapper.selectByDynamicId(id);
+        assertEquals(AuditConst.ManualQueueStatus.PENDING.getCode(), before.getQueueStatus(), "入队应为待领取");
+
+        assertNotNull(manualAuditService.claim(9002L), "应能领取");
+        ManualAuditQueue claimed = manualAuditMapper.selectByDynamicId(id);
+        assertEquals(AuditConst.ManualQueueStatus.CLAIMED.getCode(), claimed.getQueueStatus(), "领取后应为已领取");
+        assertEquals(9002L, claimed.getAssigneeId());
+
+        assertTrue(manualAuditService.giveBack(9002L, id), "持有者应能放弃");
+        ManualAuditQueue back = manualAuditMapper.selectByDynamicId(id);
+        assertEquals(AuditConst.ManualQueueStatus.PENDING.getCode(), back.getQueueStatus(), "放弃后应退回待领取");
+        assertNull(back.getAssigneeId(), "放弃后应清空持有人");
     }
 
     // ImageAuditClient.scan 按 Math.abs(url.hashCode()) % 10 分桶；找到命中指定桶的 URL

@@ -24,7 +24,7 @@ public interface ManualAuditMapper {
                      @Param("priority") Integer priority,
                      @Param("machineResult") Integer machineResult);
 
-    /** 捞一条待审任务：优先级升序、先进先出 */
+    /** 捞一条待领取任务：优先级升序、先进先出 */
     @Select("""
             SELECT * FROM manual_audit_queue
             WHERE queue_status = 0
@@ -60,14 +60,27 @@ public interface ManualAuditMapper {
             """)
     int releaseExpired();
 
-    @Update("UPDATE manual_audit_queue SET queue_status = 2 WHERE id = #{id}")
-    int finish(@Param("id") Long id);
+    /**
+     * 审核结束（提交/驳回）：直接从队列删除。
+     * 队列是临时调度数据，结论已落 manual_audit_result、痕迹已落 manual_audit_log，
+     * 不需要在队列里保留「已完成」态——留着只会让表无限膨胀。
+     */
+    @Delete("DELETE FROM manual_audit_queue WHERE id = #{id}")
+    int deleteById(@Param("id") Long id);
+
+    /** 主动放弃 / 超时回收：状态退回「待领取」，清空持有人与锁，等待被重新领取 */
+    @Update("""
+            UPDATE manual_audit_queue
+            SET queue_status = 0, assignee_id = NULL, lock_expire_time = NULL
+            WHERE id = #{id} AND queue_status = 1
+            """)
+    int release(@Param("id") Long id);
 
     @Select("SELECT * FROM manual_audit_queue WHERE dynamic_id = #{dynamicId}")
     ManualAuditQueue selectByDynamicId(@Param("dynamicId") Long dynamicId);
 
-    /** 积压监控：按状态统计待审量 */
-    @Select("SELECT queue_status, COUNT(*) FROM manual_audit_queue GROUP BY queue_status")
+    /** 积压监控：按状态统计队列量（队列只有待领取 / 已领取两态） */
+    @Select("SELECT queue_status, COUNT(*) AS cnt FROM manual_audit_queue GROUP BY queue_status")
     List<java.util.Map<String, Object>> countByStatus();
 
     // ==================== 结果表 ====================

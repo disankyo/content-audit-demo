@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -66,9 +67,9 @@ public class ManualAuditService {
     @Transactional
     public boolean submit(Long auditorId, Long dynamicId, AuditConst.ManualResult result, String reason) {
         ManualAuditQueue q = manualAuditMapper.selectByDynamicId(dynamicId);
-        if (q == null || q.getQueueStatus() != AuditConst.QueueStatus.PROCESSING.getCode()) {
+        if (q == null || q.getQueueStatus() != AuditConst.ManualQueueStatus.CLAIMED.getCode()) {
             log.warn("任务状态异常，无法提交, dynamicId={}, status={}",
-                    dynamicId, q == null ? "null" : q.getQueueStatus());
+                    dynamicId, q == null ? "null（已出队或不存在）" : q.getQueueStatus());
             return false;
         }
         if (q.getAssigneeId() == null || !q.getAssigneeId().equals(auditorId)) {
@@ -97,8 +98,8 @@ public class ManualAuditService {
         int imageStatus = (result == AuditConst.ManualResult.PASS) ? 1 : 2;
         dynamicImageMapper.updateStatusByDynamic(dynamicId, imageStatus);
 
-        // 4. 队列置为完成
-        manualAuditMapper.finish(q.getId());
+        // 4. 队列删除：队列只做调度，结论在 result、痕迹在 log，审完不必留着
+        manualAuditMapper.deleteById(q.getId());
 
         // 5. 留痕
         manualAuditMapper.insertLog(buildLog(dynamicId, auditorId,
@@ -111,14 +112,17 @@ public class ManualAuditService {
         return true;
     }
 
-    /** 审核员主动放弃任务，放回队列 */
+    /**
+     * 审核员主动放弃任务：立即退回「待领取」，清空锁，别人可以马上领走。
+     * 不依赖定时回收——放弃是明确动作，没必要让任务空等到锁过期。
+     */
     @Transactional
     public boolean giveBack(Long auditorId, Long dynamicId) {
         ManualAuditQueue q = manualAuditMapper.selectByDynamicId(dynamicId);
         if (q == null || !auditorId.equals(q.getAssigneeId())) {
             return false;
         }
-        // 由定时任务统一回收，这里只做标记
+        manualAuditMapper.release(q.getId());
         manualAuditMapper.insertLog(buildLog(dynamicId, auditorId,
                 AuditConst.ManualAction.RETURN, 1, 0, "主动放弃"));
         return true;
@@ -145,15 +149,28 @@ public class ManualAuditService {
         return new ManualTask(q, base, machineResult, images);
     }
 
-    /** 积压监控 */
+    /** 积压监控：待领取 / 已领取 各多少条 */
     public Map<String, Object> stats() {
-        Map<String, Object> stat = new java.util.LinkedHashMap<>();
+        Map<String, Object> stat = new LinkedHashMap<>();
+        long total = 0;
         for (Map<String, Object> row : manualAuditMapper.countByStatus()) {
-            Object status = row.get("queue_status");
-            Object cnt = row.get("COUNT(*)");
-            stat.put("status_" + status, cnt);
+            Object cntObj = row.get("cnt");
+            long cnt = (cntObj instanceof Number n) ? n.longValue() : 0L;
+            stat.put(statusName(row.get("queue_status")), cnt);
+            total += cnt;
         }
+        stat.put("total", total);
         return stat;
+    }
+
+    private String statusName(Object code) {
+        int c = (code instanceof Number n) ? n.intValue() : -1;
+        for (AuditConst.ManualQueueStatus s : AuditConst.ManualQueueStatus.values()) {
+            if (s.getCode() == c) {
+                return s.name().toLowerCase();
+            }
+        }
+        return "status_" + code;
     }
 
     private ManualAuditLog buildLog(Long dynamicId, Long auditorId,

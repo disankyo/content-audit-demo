@@ -100,12 +100,12 @@ CREATE TABLE IF NOT EXISTS machine_audit_log (
   KEY idx_dynamic (dynamic_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='机审审核日志表';
 
--- ---------- 7. 人审审核队列表 ----------
+-- ---------- 7. 人审审核队列表（临时数据：审核提交后删除，只保留待领取/已领取两态） ----------
 CREATE TABLE IF NOT EXISTS manual_audit_queue (
   id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   dynamic_id       BIGINT UNSIGNED NOT NULL,
   priority         TINYINT NOT NULL DEFAULT 5,
-  queue_status     TINYINT NOT NULL DEFAULT 0           COMMENT '0待处理 1审核中 2已完成',
+  queue_status     TINYINT NOT NULL DEFAULT 0           COMMENT '0待领取 1已领取（审完即删，无完成态）',
   machine_result   TINYINT DEFAULT NULL                 COMMENT '机审结论 1通过 3疑似',
   assignee_id      BIGINT UNSIGNED DEFAULT NULL         COMMENT '审核员ID',
   lock_expire_time DATETIME DEFAULT NULL                COMMENT '锁过期时间，防审核员挂起',

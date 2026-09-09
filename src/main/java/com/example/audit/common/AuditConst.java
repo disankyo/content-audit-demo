@@ -91,10 +91,10 @@ public final class AuditConst {
         public String getDesc() { return desc; }
     }
 
-    /** 队列表状态（机审/人审共用） */
+    /** 机审队列表状态 */
     public enum QueueStatus {
         PENDING(0, "待处理"),
-        PROCESSING(1, "处理中/审核中"),
+        PROCESSING(1, "处理中"),
         DONE(2, "已完成"),
         FAILED(3, "失败");
 
@@ -102,6 +102,30 @@ public final class AuditConst {
         private final String desc;
 
         QueueStatus(int code, String desc) {
+            this.code = code;
+            this.desc = desc;
+        }
+
+        public int getCode() { return code; }
+        public String getDesc() { return desc; }
+    }
+
+    /**
+     * 人审队列表状态：只有两态。
+     *
+     * <p>人审队列是<b>临时数据</b>——审核提交后记录直接删除，不保留「已完成」状态。
+     * 原因：队列只承担「调度」职责（谁待领、谁被谁领了），
+     * 结论已经落在 manual_audit_result，流转痕迹落在 manual_audit_log，
+     * 队列里再存一份完成态既冗余又会无限膨胀。
+     */
+    public enum ManualQueueStatus {
+        PENDING(0, "待领取"),
+        CLAIMED(1, "已领取");
+
+        private final int code;
+        private final String desc;
+
+        ManualQueueStatus(int code, String desc) {
             this.code = code;
             this.desc = desc;
         }

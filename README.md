@@ -91,7 +91,14 @@ curl http://localhost:8080/api/audit/manual/stats
                   通过          驳回
                     │            │
               biz_status=2   biz_status=3
+                    │            │
+              ┌─────┴────────────┘
+          队列记录删除
+     （结论在 result，痕迹在 log）
 ```
+
+> 人审队列是**临时调度数据**：只有「待领取 / 已领取」两态，审核提交后记录直接删除，
+> 不保留完成态——队列只负责调度，结论和痕迹分别由 `manual_audit_result`、`manual_audit_log` 承载。
 
 ---
 
@@ -177,6 +184,7 @@ WHERE id = ? AND queue_status = 0
 
 - `machine_audit_result` 加 **唯一键**：一个动态只有一个最终结论，重复机审用 `ON DUPLICATE KEY UPDATE` 覆盖
 - `machine_audit_log` **不加唯一键**：一次机审经历多个阶段（规则/图片/抽帧/AI），每阶段留一条用于追溯与复盘
+- **队列表是易失的**：只保存「还没干完的活」，干完即删，避免无限膨胀；所以队列状态只需要「待领取 / 已领取」两态，不需要完成态
 
 如果要完整追溯，还应有一张「机审结果历史表」记录每次结论变化——很多团队会漏掉这个。
 
