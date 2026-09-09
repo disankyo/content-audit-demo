@@ -18,6 +18,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -160,6 +161,59 @@ class AuditFlowIntegrationTest {
         assertNotNull(failed, "失败任务没有结论，不能删除，需留待人工介入");
         assertEquals(AuditConst.MachineQueueStatus.FAILED.getCode(), failed.getQueueStatus(),
                 "重试耗尽应标记失败待介入");
+    }
+
+    // ---------- 用例 6：机审任务卡在「处理中」(status=1) 应被回收，避免动态永久卡死 ----------
+    @Test
+    void stuck_machine_queue_should_be_recovered() {
+        Long ghostId = 888888L;
+        // 插一条卡在 PROCESSING(1) 且 update_time 早已过期的行（模拟消费者崩溃后没机会 deleteById）
+        java.sql.Timestamp old = java.sql.Timestamp.valueOf(java.time.LocalDateTime.now().minusMinutes(10));
+        java.sql.Timestamp now = java.sql.Timestamp.valueOf(java.time.LocalDateTime.now());
+        jdbcTemplate.update(
+                "INSERT INTO machine_audit_queue (dynamic_id, priority, queue_status, retry_count, next_retry_time, create_time, update_time) "
+                        + "VALUES (?,5,1,0,?,?,?)",
+                ghostId, now, now, old);
+
+        int n = machineAuditConsumer.recoverStuck();
+        assertEquals(1, n, "应回收 1 条卡死任务");
+
+        MachineAuditQueue q = machineAuditMapper.selectByDynamicId(ghostId);
+        assertNotNull(q, "卡死任务应仍在队列（失败/无结论不能删）");
+        assertEquals(AuditConst.MachineQueueStatus.PENDING.getCode(), q.getQueueStatus(),
+                "应重置为待处理(0)，等待重新调度");
+    }
+
+    // ---------- 用例 7：人审并发提交只应成功一次，不重复留痕 ----------
+    @Test
+    void concurrent_manual_submit_should_not_duplicate() throws Exception {
+        Long id = dynamicService.publish(new DynamicService.PublishCmd(
+                1007L, AuditConst.DynamicType.TEXT.getCode(),
+                "并发提交测试", "内容合规无敏感词",
+                List.of(), null, null, null, null));
+        runMachineAudit(id);
+        manualAuditService.claim(9007L);
+
+        AtomicInteger success = new AtomicInteger(0);
+        Runnable job = () -> {
+            if (manualAuditService.submit(9007L, id, AuditConst.ManualResult.PASS, "并发")) {
+                success.incrementAndGet();
+            }
+        };
+        Thread t1 = new Thread(job);
+        Thread t2 = new Thread(job);
+        t1.start();
+        t2.start();
+        t1.join();
+        t2.join();
+
+        assertEquals(1, success.get(), "并发提交应只有一个成功");
+        // claim 会留一条 CLAIM 痕迹，submit 成功再留一条 PASS；并发闸门要保住的是「只有一条 PASS」
+        long passLogs = manualAuditMapper.selectLogs(id).stream()
+                .filter(l -> "pass".equals(l.getAction()))
+                .count();
+        assertEquals(1, passLogs, "不应重复提交留痕");
+        assertNull(manualAuditMapper.selectByDynamicId(id), "任务应已出队");
     }
 
     // ImageAuditClient.scan 按 (url.hashCode() & 0x7FFFFFFF) % 10 分桶；找到命中指定桶的 URL

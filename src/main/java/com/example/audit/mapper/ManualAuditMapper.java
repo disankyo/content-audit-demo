@@ -76,6 +76,18 @@ public interface ManualAuditMapper {
             """)
     int release(@Param("id") Long id);
 
+    /**
+     * 提交时的并发闸门：用原子 DELETE 替代「先查后写」。
+     * 只有「已领取(status=1) 且归属当前审核员」的行才会被删除（affected rows=1），
+     * 并发的第二个提交者删除 0 行 → 直接失败，杜绝重复写结论 / 重复留痕。
+     * 坐标：queue_status=1 + assignee_id，遵循项目「UPDATE/DELETE ... WHERE 状态 + affected rows」铁律。
+     */
+    @Delete("""
+            DELETE FROM manual_audit_queue
+            WHERE dynamic_id = #{dynamicId} AND queue_status = 1 AND assignee_id = #{auditorId}
+            """)
+    int deleteIfClaimed(@Param("dynamicId") Long dynamicId, @Param("auditorId") Long auditorId);
+
     @Select("SELECT * FROM manual_audit_queue WHERE dynamic_id = #{dynamicId}")
     ManualAuditQueue selectByDynamicId(@Param("dynamicId") Long dynamicId);
 

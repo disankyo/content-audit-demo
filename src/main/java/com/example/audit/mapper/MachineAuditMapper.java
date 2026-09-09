@@ -5,6 +5,8 @@ import com.example.audit.domain.MachineAuditQueue;
 import com.example.audit.domain.MachineAuditResult;
 import org.apache.ibatis.annotations.*;
 
+import java.time.LocalDateTime;
+
 import java.util.List;
 
 @Mapper
@@ -66,6 +68,25 @@ public interface MachineAuditMapper {
     /** 超过最大重试次数：标记失败并留在队列里，等人工介入（失败任务没有结论，不能删） */
     @Update("UPDATE machine_audit_queue SET queue_status = 3 WHERE id = #{id}")
     int markFailed(@Param("id") Long id);
+
+    /**
+     * 回收卡死在「处理中」(status=1) 的任务。
+     *
+     * <p>消费者进程崩溃/被 kill 时，claim 把状态置 1 后没机会执行 deleteById，
+     * 这一行会永久停在 1；而 pickBatch 只捞 status=0，于是动态卡死在 AUDITING。
+     * 定时扫描超过阈值仍未结束的「处理中」任务，重置回待处理（重试耗尽则标记失败），让其被重新调度。
+     *
+     * <p>用 Java 算阈值（#{threshold}）而非数据库日期函数，保证 MySQL / H2 通用。
+     */
+    @Update("""
+            UPDATE machine_audit_queue
+            SET queue_status    = CASE WHEN retry_count + 1 >= #{maxRetry} THEN 3 ELSE 0 END,
+                retry_count     = retry_count + 1,
+                next_retry_time = NOW()
+            WHERE queue_status = 1
+              AND update_time < #{threshold}
+            """)
+    int resetStuck(@Param("threshold") LocalDateTime threshold, @Param("maxRetry") int maxRetry);
 
     // ==================== 结果表（状态表） ====================
 

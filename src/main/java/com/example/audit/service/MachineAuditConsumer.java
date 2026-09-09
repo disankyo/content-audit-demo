@@ -14,6 +14,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -50,6 +51,9 @@ public class MachineAuditConsumer {
     @Value("${audit.machine.max-retry:3}")
     private int maxRetry;
 
+    @Value("${audit.machine.stuck-timeout-min:5}")
+    private int stuckTimeoutMin;
+
     @Scheduled(fixedDelayString = "${audit.machine.poll-interval-ms:1000}")
     public void consume() {
         List<MachineAuditQueue> batch;
@@ -77,6 +81,24 @@ public class MachineAuditConsumer {
                 }
             }
         }
+    }
+
+    /**
+     * 回收卡死在「处理中」(status=1) 的机审任务。
+     *
+     * <p>claim 把状态置 1 后即开始机审（含同步 AI 调用，最长可达数秒）；若此时消费者进程崩溃 /
+     * 被 kill，deleteById 永远不会执行，这一行永久停在 1，而 pickBatch 只捞 status=0，
+     * 于是动态卡死在 AUDITING。本任务定期把「超过阈值仍未结束的处理中任务」重置回待处理
+     * （重试耗尽则标记失败），让其重新被调度——与人审的 releaseExpired 是同一思路。
+     */
+    @Scheduled(fixedDelay = 60_000)
+    public int recoverStuck() {
+        LocalDateTime threshold = LocalDateTime.now().minusMinutes(stuckTimeoutMin);
+        int n = machineAuditMapper.resetStuck(threshold, maxRetry);
+        if (n > 0) {
+            log.warn("回收卡死机审任务 {} 条（重置为待处理 / 标记失败，等待重新调度）", n);
+        }
+        return n;
     }
 
     public void handleOne(MachineAuditQueue queue) {

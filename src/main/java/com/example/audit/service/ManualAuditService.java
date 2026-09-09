@@ -67,18 +67,25 @@ public class ManualAuditService {
     /** 提交审核结论 */
     @Transactional
     public boolean submit(Long auditorId, Long dynamicId, AuditConst.ManualResult result, String reason) {
+        // 1. 先读一行：仅用于耗时统计与友好日志，非权威并发判断
         ManualAuditQueue q = manualAuditMapper.selectByDynamicId(dynamicId);
-        if (q == null || q.getQueueStatus() != AuditConst.ManualQueueStatus.CLAIMED.getCode()) {
-            log.warn("任务状态异常，无法提交, dynamicId={}, status={}",
-                    dynamicId, q == null ? "null（已出队或不存在）" : q.getQueueStatus());
-            return false;
-        }
-        if (q.getAssigneeId() == null || !q.getAssigneeId().equals(auditorId)) {
-            log.warn("非任务持有者提交, dynamicId={}, auditorId={}", dynamicId, auditorId);
+        if (q == null) {
+            log.warn("任务不存在（可能已被提交或回收）, dynamicId={}", dynamicId);
             return false;
         }
 
-        // 1. 写人审结论
+        // 2. 并发闸门：用原子 DELETE 替代「先查后写」。
+        //    只有「已领取(status=1) 且归属当前审核员」的行才会被删除（affected rows=1），
+        //    并发的第二个提交者删除 0 行 → 直接失败，杜绝重复写结论 / 重复留痕。
+        //    坐标：queue_status=1 + assignee_id，遵循项目「UPDATE/DELETE ... WHERE 状态 + affected rows」铁律。
+        int removed = manualAuditMapper.deleteIfClaimed(dynamicId, auditorId);
+        if (removed == 0) {
+            log.warn("提交并发冲突或任务已易主（已被提交/退回）, dynamicId={}, auditorId={}",
+                    dynamicId, auditorId);
+            return false;
+        }
+
+        // 3. 写人审结论
         ManualAuditResult r = new ManualAuditResult();
         r.setDynamicId(dynamicId);
         r.setAuditorId(auditorId);
@@ -88,21 +95,18 @@ public class ManualAuditService {
         r.setCostMs((int) Duration.between(q.getUpdateTime(), LocalDateTime.now()).toMillis());
         manualAuditMapper.upsertResult(r);
 
-        // 2. 回写动态业务状态：这是最终态
+        // 4. 回写动态业务状态：这是最终态
         AuditConst.BizStatus bizStatus = (result == AuditConst.ManualResult.PASS)
                 ? AuditConst.BizStatus.PASSED
                 : AuditConst.BizStatus.REJECTED;
         dynamicBaseMapper.updateBizStatus(dynamicId, bizStatus.getCode());
         dynamicBaseMapper.updateManualStatus(dynamicId, result.getCode());
 
-        // 3. 同步图片状态，保持各表一致
+        // 5. 同步图片状态，保持各表一致
         int imageStatus = (result == AuditConst.ManualResult.PASS) ? 1 : 2;
         dynamicImageMapper.updateStatusByDynamic(dynamicId, imageStatus);
 
-        // 4. 队列删除：队列只做调度，结论在 result、痕迹在 log，审完不必留着
-        manualAuditMapper.deleteById(q.getId());
-
-        // 5. 留痕
+        // 6. 留痕（队列已在第 2 步删除，结论在 result、痕迹在 log，审完不必留着）
         manualAuditMapper.insertLog(buildLog(dynamicId, auditorId,
                 result == AuditConst.ManualResult.PASS
                         ? AuditConst.ManualAction.PASS

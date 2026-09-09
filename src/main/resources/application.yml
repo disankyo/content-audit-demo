@@ -48,6 +48,10 @@ audit:
     poll-interval-ms: 1000
     batch-size: 20
     max-retry: 3
+    # 处理中任务卡死回收阈值（分钟）：消费者进程崩溃/被 kill 时，
+    # claim 置状态=1 后没机会 deleteById，这一行会永久停在 1、pickBatch 只捞 0，动态卡死在 AUDITING。
+    # 超过该时长仍未结束的「处理中」任务由 recoverStuck() 重置回待处理（重试耗尽则标记失败）
+    stuck-timeout-min: 5
   manual:
     # 审核员领取任务后几分钟不提交，任务自动回收
     lock-minutes: 5
